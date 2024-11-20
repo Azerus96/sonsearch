@@ -3,13 +3,9 @@ services:
     name: site-searcher
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn async_app:app --host 0.0.0.0 --port 10000 --workers 2 --timeout-keep-alive 5 --ws websockets
+    startCommand: gunicorn app:app --bind 0.0.0.0:10000 --workers 2 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
       - key: PYTHONUNBUFFERED
         value: "true"
-      - key: MAX_WORKERS
-        value: "2"
-      - key: CONCURRENT_REQUESTS
-        value: "30"
