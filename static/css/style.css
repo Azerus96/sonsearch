@@ -1,0 +1,347 @@
+/* static/css/style.css */
+
+:root {
+    --primary-color: #4CAF50;
+    --primary-hover: #45a049;
+    --error-color: #d32f2f;
+    --error-bg: #ffebee;
+    --highlight-color: #fff176;
+    --border-color: #ddd;
+    --text-color: #333;
+    --text-light: #666;
+}
+
+/* Основные стили */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f5f5f5;
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Заголовки */
+h1 {
+    color: var(--text-color);
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+/* Формы */
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+input[type="text"],
+input[type="number"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 16px;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
+}
+
+/* Кнопки */
+button {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    width: 100%;
+}
+
+button:hover {
+    background-color: var(--primary-hover);
+}
+
+button:disabled {
+    background-color: var(--border-color);
+    cursor: not-allowed;
+}
+
+/* Результаты поиска */
+.result {
+    margin-bottom: 20px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: white;
+    transition: transform 0.2s ease;
+}
+
+.result:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.result h3 {
+    margin-top: 0;
+    color: var(--primary-color);
+}
+
+.result-context {
+    margin: 10px 0;
+    line-height: 1.6;
+}
+
+.highlight {
+    background-color: var(--highlight-color);
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+/* Индикатор загрузки */
+.loading {
+    display: none;
+    text-align: center;
+    margin: 20px 0;
+    padding: 20px;
+}
+
+.loading::after {
+    content: '';
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Сообщения об ошибках */
+.error {
+    color: var(--error-color);
+    background-color: var(--error-bg);
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Статистика результатов */
+.result-stats {
+    margin: 20px 0;
+    color: var(--text-light);
+    font-size: 14px;
+}
+
+/* Ссылки */
+a {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+a:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+/* Адаптивный дизайн */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+        margin: 10px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+        font-size: 14px;
+    }
+
+    button {
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+
+    .result {
+        padding: 15px;
+    }
+}
+
+/* Дополнительные стили для улучшения доступности */
+:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Стили для подсказок */
+.tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.tooltip .tooltip-text {
+    visibility: hidden;
+    background-color: #333;
+    color: white;
+    text-align: center;
+    padding: 5px 10px;
+    border-radius: 4px;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.tooltip:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Стили для пагинации */
+.pagination {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+    gap: 10px;
+}
+
+.pagination button {
+    width: auto;
+    padding: 8px 16px;
+}
+
+/* Стили для фильтров */
+.filters {
+    margin: 20px 0;
+    padding: 15px;
+    background-color: #f8f8f8;
+    border-radius: 4px;
+}
+
+.filters select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+/* Анимации для результатов */
+.result {
+    opacity: 0;
+    animation: fadeInResult 0.5s ease forwards;
+}
+
+@keyframes fadeInResult {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Стили для модальных окон */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 1000;
+}
+
+.modal-content {
+    position: relative;
+    background-color: white;
+    margin: 10% auto;
+    padding: 20px;
+    width: 80%;
+    max-width: 500px;
+    border-radius: 8px;
+    animation: modalOpen 0.3s ease;
+}
+
+@keyframes modalOpen {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Стили для темной темы */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --text-color: #fff;
+        --text-light: #ccc;
+        --border-color: #444;
+        --highlight-color: #2d2d2d;
+    }
+
+    body {
+        background-color: #1a1a1a;
+    }
+
+    .container {
+        background-color: #2d2d2d;
+    }
+
+    .result {
+        background-color: #333;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+        background-color: #333;
+        color: white;
+    }
+
+    .filters {
+        background-color: #333;
+    }
+}
