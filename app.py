@@ -1,7 +1,7 @@
 import os
 import asyncio
 import aiohttp
-from flask import Flask, render_template, request, make_response, send_from_directory
+from flask import Flask, render_template, request
 from flask_sock import Sock
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -11,7 +11,6 @@ import time
 from datetime import datetime
 import json
 from search_state import SearchProgress, search_states
-from functools import lru_cache
 import gc
 
 # Настройка логирования
@@ -26,9 +25,35 @@ CONCURRENT_REQUESTS = 30
 REQUEST_TIMEOUT = 15
 MAX_CONTENT_SIZE = 500_000
 CHUNK_SIZE = 50
+MAX_RETRIES = 3
 
 app = Flask(__name__)
 sock = Sock(app)
+
+# Семафор для контроля параллельных запросов
+semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
+
+# Хранилище состояний поиска
+search_states = {}
+
+class SearchProgress:
+    def __init__(self, total_urls=0, processed_urls=0, found_results=0, 
+                 current_status="waiting", start_time=0):
+        self.total_urls = total_urls
+        self.processed_urls = processed_urls
+        self.found_results = found_results
+        self.current_status = current_status
+        self.start_time = start_time
+
+    def to_json(self):
+        return json.dumps({
+            "total_urls": self.total_urls,
+            "processed_urls": self.processed_urls,
+            "found_results": self.found_results,
+            "current_status": self.current_status,
+            "progress": round((self.processed_urls / max(self.total_urls, 1)) * 100, 2),
+            "elapsed_time": round(time.time() - self.start_time, 2) if self.start_time else 0
+        })
 
 class SearchResult:
     def __init__(self, context, title, url, count):
@@ -43,24 +68,26 @@ async def update_search_progress(search_id, **kwargs):
         for key, value in kwargs.items():
             setattr(search_states[search_id], key, value)
 
-@lru_cache(maxsize=100)
 async def fetch_page(session, url):
-    """Асинхронное получение страницы с кэшированием"""
-    try:
-        async with session.get(url, timeout=REQUEST_TIMEOUT) as response:
-            if response.status != 200:
-                return None
-            content = ''
-            async for chunk in response.content.iter_chunked(8192):
-                content += chunk.decode('utf-8', errors='ignore')
-                if len(content) > MAX_CONTENT_SIZE:
-                    return content[:MAX_CONTENT_SIZE]
-            return content
-    except Exception as e:
-        logger.error(f"Error fetching {url}: {str(e)}")
+    """Асинхронное получение страницы"""
+    async with semaphore:
+        for retry in range(MAX_RETRIES):
+            try:
+                async with session.get(url, timeout=REQUEST_TIMEOUT) as response:
+                    if response.status != 200:
+                        continue
+                    content = ''
+                    async for chunk in response.content.iter_chunked(8192):
+                        content += chunk.decode('utf-8', errors='ignore')
+                        if len(content) > MAX_CONTENT_SIZE:
+                            return content[:MAX_CONTENT_SIZE]
+                    return content
+            except Exception as e:
+                logger.error(f"Error fetching {url} (attempt {retry + 1}): {str(e)}")
+                if retry == MAX_RETRIES - 1:
+                    return None
+                await asyncio.sleep(1)
         return None
-    finally:
-        gc.collect()
 
 def is_valid_url(url):
     """Проверка валидности URL"""
@@ -169,6 +196,7 @@ async def get_links(session, start_url, max_depth):
                 break
                 
             await asyncio.sleep(0.1)
+            gc.collect()
             
         return list(visited)
     except Exception as e:
@@ -192,15 +220,6 @@ def websocket_endpoint(sock, search_id):
             logger.error(f"WebSocket error: {str(e)}")
             break
 
-@app.route('/favicon.ico')
-def favicon():
-    """Обработчик favicon.ico"""
-    return send_from_directory(
-        os.path.join(app.root_path, 'static'),
-        'favicon.ico',
-        mimetype='image/vnd.microsoft.icon'
-    )
-
 @app.route('/', methods=['GET', 'POST'])
 async def index():
     """Основной обработчик"""
@@ -211,67 +230,82 @@ async def index():
             max_depth = min(int(request.form['max_depth']), 10)
             max_pages = min(int(request.form['max_pages']), 100)
 
+            if not is_valid_url(start_url):
+                return render_template('index.html', error="Некорректный URL")
+
             # Создаем ID для поиска
             search_id = str(int(time.time()))
             search_states[search_id] = SearchProgress(start_time=time.time())
 
-            async with aiohttp.ClientSession(
-                headers={'User-Agent': 'Mozilla/5.0'},
-                timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),
-                connector=aiohttp.TCPConnector(limit=CONCURRENT_REQUESTS)
-            ) as session:
-                # Получение ссылок
-                await update_search_progress(search_id, current_status="collecting_urls")
-                all_urls = await get_links(session, start_url, max_pages)
+            try:
+                connector = aiohttp.TCPConnector(limit=CONCURRENT_REQUESTS, force_close=True)
+                timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
                 
-                await update_search_progress(
-                    search_id,
-                    total_urls=len(all_urls),
-                    current_status="searching"
-                )
-
-                # Поиск по страницам
-                results = []
-                for i in range(0, len(all_urls), CHUNK_SIZE):
-                    chunk = all_urls[i:i + CHUNK_SIZE]
-                    tasks = [search_page(session, url, search_term) for url in chunk]
-                    chunk_results = await asyncio.gather(*tasks)
-                    
-                    valid_results = [r for r in chunk_results if r]
-                    results.extend(valid_results)
+                async with aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout,
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                    }
+                ) as session:
+                    # Получение ссылок
+                    await update_search_progress(search_id, current_status="collecting_urls")
+                    all_urls = await get_links(session, start_url, max_pages)
                     
                     await update_search_progress(
                         search_id,
-                        processed_urls=i + len(chunk),
-                        found_results=len(results)
+                        total_urls=len(all_urls),
+                        current_status="searching"
                     )
-                    
-                    # Очистка памяти
-                    del chunk_results
-                    await asyncio.sleep(0.1)
 
-                # Сортировка и финальное обновление
-                results.sort(key=lambda x: x.count, reverse=True)
-                await update_search_progress(
-                    search_id,
-                    current_status="completed",
-                    processed_urls=len(all_urls)
-                )
+                    # Поиск по страницам
+                    results = []
+                    for i in range(0, len(all_urls), CHUNK_SIZE):
+                        chunk = all_urls[i:i + CHUNK_SIZE]
+                        tasks = [search_page(session, url, search_term) for url in chunk]
+                        chunk_results = await asyncio.gather(*tasks)
+                        
+                        valid_results = [r for r in chunk_results if r]
+                        results.extend(valid_results)
+                        
+                        await update_search_progress(
+                            search_id,
+                            processed_urls=i + len(chunk),
+                            found_results=len(results)
+                        )
+                        
+                        # Очистка памяти
+                        del chunk_results
+                        await asyncio.sleep(0.1)
+                        gc.collect()
 
-                return render_template(
-                    'index.html',
-                    results=results[:50],
-                    url=start_url,
-                    search_term=search_term,
-                    search_id=search_id
-                )
+                    # Сортировка и финальное обновление
+                    results.sort(key=lambda x: x.count, reverse=True)
+                    await update_search_progress(
+                        search_id,
+                        current_status="completed",
+                        processed_urls=len(all_urls)
+                    )
+
+                    return render_template(
+                        'index.html',
+                        results=results[:50],
+                        url=start_url,
+                        search_term=search_term,
+                        search_id=search_id
+                    )
+
+            except Exception as e:
+                logger.error(f"Search error: {str(e)}")
+                await update_search_progress(search_id, current_status="error")
+                return render_template('index.html', error="Произошла ошибка при поиске")
 
         return render_template('index.html')
 
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
-        if 'search_id' in locals():
-            await update_search_progress(search_id, current_status="error")
         return render_template('index.html', error="Произошла ошибка при выполнении поиска")
 
 @app.before_request
@@ -285,11 +319,6 @@ def cleanup_old_states():
     for search_id in to_remove:
         del search_states[search_id]
 
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    """Обработчик превышения лимита запросов"""
-    return render_template('index.html', error="Слишком много запросов. Пожалуйста, подождите.")
-
 @app.errorhandler(Exception)
 def handle_exception(e):
     """Общий обработчик ошибок"""
@@ -298,3 +327,4 @@ def handle_exception(e):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
+
