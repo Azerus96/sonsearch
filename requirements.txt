@@ -13,3 +13,6 @@ lxml==4.9.3
 aiohttp==3.8.5
 aioflask==0.4.0
 websockets==11.0.3
+flask-sock==0.6.0
+simple-websocket==0.10.1
+eventlet==0.33.3
