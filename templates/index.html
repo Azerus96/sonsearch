@@ -1,0 +1,206 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Поисковик по сайту</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .result {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .highlight {
+            background-color: #fff176;
+            padding: 2px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .result-stats {
+            margin-bottom: 15px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Поисковик по сайту</h1>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" onsubmit="return validateForm()">
+            <div class="form-group">
+                <label>URL сайта:</label>
+                <input type="text" name="url" value="{{ url }}" placeholder="https://example.com" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Поисковый запрос:</label>
+                <input type="text" name="search_term" value="{{ search_term }}" placeholder="Введите текст для поиска" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Глубина поиска:</label>
+                <input type="number" name="max_depth" value="3" min="1" max="10" required>
+            </div>
+            
+            <div class="form-group">
+                <label>Максимальное количество страниц:</label>
+                <input type="number" name="max_pages" value="10" min="1" max="100" required>
+            </div>
+            
+            <button type="submit">Искать</button>
+        </form>
+
+        <div id="loading" class="loading">
+            Выполняется поиск...
+        </div>
+
+        {% if results %}
+            <div class="result-stats">
+                Найдено результатов: {{ results|length }}
+            </div>
+            {% for result in results %}
+                <div class="result">
+                    <h3>{{ result.title }}</h3>
+                    <p><strong>Контекст:</strong> ...{{ result.context }}...</p>
+                    <p><strong>URL:</strong> <a href="{{ result.url }}" target="_blank">{{ result.url }}</a></p>
+                    <p><strong>Количество совпадений:</strong> {{ result.count }}</p>
+                </div>
+            {% endfor %}
+        {% elif request.method == 'POST' and not error %}
+            <p>Ничего не найдено</p>
+        {% endif %}
+    </div>
+
+    <script>
+    function validateForm() {
+        var url = document.getElementsByName('url')[0].value;
+        var searchTerm = document.getElementsByName('search_term')[0].value;
+        var maxDepth = document.getElementsByName('max_depth')[0].value;
+        var maxPages = document.getElementsByName('max_pages')[0].value;
+
+        if (!url || !searchTerm || !maxDepth || !maxPages) {
+            alert('Пожалуйста, заполните все поля');
+            return false;
+        }
+
+        if (maxDepth < 1 || maxPages < 1) {
+            alert('Значения должны быть больше 0');
+            return false;
+        }
+
+        if (maxPages > 100) {
+            alert('Максимальное количество страниц не может превышать 100');
+            return false;
+        }
+
+        // Проверка формата URL
+        try {
+            new URL(url);
+        } catch {
+            alert('Пожалуйста, введите корректный URL');
+            return false;
+        }
+
+        // Показываем индикатор загрузки
+        document.getElementById('loading').style.display = 'block';
+        
+        // Отключаем кнопку отправки
+        document.querySelector('button[type="submit"]').disabled = true;
+        
+        return true;
+    }
+
+    // Подсветка найденного текста
+    function highlightSearchTerm() {
+        const searchTerm = '{{ search_term }}';
+        if (!searchTerm) return;
+
+        const results = document.querySelectorAll('.result');
+        results.forEach(result => {
+            const context = result.querySelector('p');
+            if (context) {
+                const text = context.innerHTML;
+                const regex = new RegExp(searchTerm, 'gi');
+                context.innerHTML = text.replace(regex, match => 
+                    `<span class="highlight">${match}</span>`
+                );
+            }
+        });
+    }
+
+    // Восстановление состояния формы после перезагрузки
+    window.onload = function() {
+        highlightSearchTerm();
+        document.getElementById('loading').style.display = 'none';
+        document.querySelector('button[type="submit"]').disabled = false;
+    }
+
+    // Обработка ошибок AJAX-запросов
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+        document.getElementById('loading').style.display = 'none';
+        document.querySelector('button[type="submit"]').disabled = false;
+        alert('Произошла ошибка при выполнении поиска. Пожалуйста, попробуйте еще раз.');
+        return false;
+    }
+    </script>
+</body>
+</html>
