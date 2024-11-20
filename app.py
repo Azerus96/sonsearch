@@ -21,11 +21,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Константы
-CONCURRENT_REQUESTS = 30
-REQUEST_TIMEOUT = 15
+CONCURRENT_REQUESTS = 20  # Уменьшаем количество одновременных запросов
+REQUEST_TIMEOUT = 30  # Увеличиваем таймаут
 MAX_CONTENT_SIZE = 500_000
-CHUNK_SIZE = 50
+CHUNK_SIZE = 30
 MAX_RETRIES = 3
+
+
+# Настройки сессии
+SESSION_SETTINGS = {
+    'timeout': aiohttp.ClientTimeout(total=REQUEST_TIMEOUT, connect=10),
+    'headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    },
+    'ssl': False,  # Отключаем проверку SSL
+}
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -73,20 +85,41 @@ async def fetch_page(session, url):
     async with semaphore:
         for retry in range(MAX_RETRIES):
             try:
-                async with session.get(url, timeout=REQUEST_TIMEOUT) as response:
+                async with session.get(url, timeout=REQUEST_TIMEOUT, ssl=False) as response:
                     if response.status != 200:
+                        logger.warning(f"Status {response.status} for {url}")
+                        if retry == MAX_RETRIES - 1:
+                            return None
                         continue
-                    content = ''
-                    async for chunk in response.content.iter_chunked(8192):
-                        content += chunk.decode('utf-8', errors='ignore')
-                        if len(content) > MAX_CONTENT_SIZE:
-                            return content[:MAX_CONTENT_SIZE]
-                    return content
+
+                    try:
+                        content = ''
+                        async for chunk in response.content.iter_chunked(8192):
+                            try:
+                                content += chunk.decode('utf-8', errors='ignore')
+                                if len(content) > MAX_CONTENT_SIZE:
+                                    return content[:MAX_CONTENT_SIZE]
+                            except Exception as e:
+                                logger.error(f"Error decoding chunk from {url}: {str(e)}")
+                                continue
+                        return content if content else None
+                    except Exception as e:
+                        logger.error(f"Error reading content from {url}: {str(e)}")
+                        if retry == MAX_RETRIES - 1:
+                            return None
+                        continue
+
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout for {url} (attempt {retry + 1})")
+            except aiohttp.ClientError as e:
+                logger.error(f"Client error for {url} (attempt {retry + 1}): {str(e)}")
             except Exception as e:
-                logger.error(f"Error fetching {url} (attempt {retry + 1}): {str(e)}")
-                if retry == MAX_RETRIES - 1:
-                    return None
-                await asyncio.sleep(1)
+                logger.error(f"Unexpected error for {url} (attempt {retry + 1}): {str(e)}")
+            
+            if retry < MAX_RETRIES - 1:
+                await asyncio.sleep(1 * (retry + 1))  # Увеличиваем время ожидания с каждой попыткой
+            else:
+                return None
         return None
 
 def is_valid_url(url):
@@ -238,18 +271,17 @@ async def index():
             search_states[search_id] = SearchProgress(start_time=time.time())
 
             try:
-                connector = aiohttp.TCPConnector(limit=CONCURRENT_REQUESTS, force_close=True)
-                timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
-                
-                async with aiohttp.ClientSession(
-                    connector=connector,
-                    timeout=timeout,
-                    headers={
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
-                    }
-                ) as session:
+                connector = aiohttp.TCPConnector(
+    limit=CONCURRENT_REQUESTS,
+    force_close=True,
+    enable_cleanup_closed=True,
+    ssl=False
+)
+
+async with aiohttp.ClientSession(
+    connector=connector,
+    **SESSION_SETTINGS
+) as session:
                     # Получение ссылок
                     await update_search_progress(search_id, current_status="collecting_urls")
                     all_urls = await get_links(session, start_url, max_pages)
