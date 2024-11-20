@@ -2,6 +2,7 @@ import os
 import asyncio
 import aiohttp
 from flask import Flask, render_template, request, make_response, send_from_directory
+from flask_sock import Sock
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import logging
@@ -10,7 +11,6 @@ import time
 from datetime import datetime
 import json
 from search_state import SearchProgress, search_states
-import websockets
 from functools import lru_cache
 import gc
 
@@ -28,6 +28,7 @@ MAX_CONTENT_SIZE = 500_000
 CHUNK_SIZE = 50
 
 app = Flask(__name__)
+sock = Sock(app)
 
 class SearchResult:
     def __init__(self, context, title, url, count):
@@ -41,19 +42,6 @@ async def update_search_progress(search_id, **kwargs):
     if search_id in search_states:
         for key, value in kwargs.items():
             setattr(search_states[search_id], key, value)
-        
-        # Отправка обновления через WebSocket
-        progress_data = search_states[search_id].to_json()
-        await broadcast_progress(search_id, progress_data)
-
-async def broadcast_progress(search_id, data):
-    """Отправка обновлений через WebSocket"""
-    if hasattr(app, 'websocket_clients') and search_id in app.websocket_clients:
-        for client in app.websocket_clients[search_id]:
-            try:
-                await client.send(data)
-            except:
-                pass
 
 @lru_cache(maxsize=100)
 async def fetch_page(session, url):
@@ -187,20 +175,22 @@ async def get_links(session, start_url, max_depth):
         logger.error(f"Error in get_links: {str(e)}")
         return []
 
-@app.websocket('/ws/<search_id>')
-async def websocket_endpoint(websocket, search_id):
+@sock.route('/ws/<search_id>')
+def websocket_endpoint(sock, search_id):
     """WebSocket endpoint для обновлений прогресса"""
-    if not hasattr(app, 'websocket_clients'):
-        app.websocket_clients = {}
+    if search_id not in search_states:
+        return
     
-    if search_id not in app.websocket_clients:
-        app.websocket_clients[search_id] = set()
-    
-    app.websocket_clients[search_id].add(websocket)
-    try:
-        await websocket.wait_closed()
-    finally:
-        app.websocket_clients[search_id].remove(websocket)
+    while True:
+        try:
+            data = search_states[search_id].to_json()
+            sock.send(data)
+            if search_states[search_id].current_status in ['completed', 'error']:
+                break
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"WebSocket error: {str(e)}")
+            break
 
 @app.route('/favicon.ico')
 def favicon():
