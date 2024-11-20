@@ -3,9 +3,11 @@ services:
     name: site-searcher
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:10000 --workers 2 --timeout 120
+    startCommand: gunicorn --worker-class eventlet -w 1 app:app --bind 0.0.0.0:10000 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
       - key: PYTHONUNBUFFERED
         value: "true"
+      - key: CONCURRENT_REQUESTS
+        value: "30"
