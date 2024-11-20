@@ -9,7 +9,7 @@ import re
 import time
 from datetime import datetime
 import json
-from app.search_state import SearchProgress, search_states
+from search_state import SearchProgress, search_states
 import websockets
 from functools import lru_cache
 import gc
